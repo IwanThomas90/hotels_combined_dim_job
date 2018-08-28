@@ -1,0 +1,59 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+.miniconda
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+VERSION
+
+# PyInstaller
+*.manifest
+*.spec
+
+# PyBuilder
+target/
+
+# pyenv
+.python-version
+
+# virtualenv
+.env
+.venv
+venv/
+ENV/
+
+# gradle assistance tools
+.gradle
+.cache
+pinned.txt
+activate
+
+# docker
+docker/*
+
+# IDE
+**/.idea/**
+*.iml
+
+# Code coverage
+/job/.coverage
+/job/coverage.xml
+.scannerwork/

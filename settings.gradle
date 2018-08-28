@@ -1,0 +1,4 @@
+rootProject.name = 'data-job-template'
+include 'job'
+include 'acceptance-tests'
+project(":job").name = "job-template"

@@ -1,0 +1,138 @@
+plugins {
+    id "com.palantir.python.miniconda" version "0.5.0"
+    id "net.researchgate.release" version "2.6.0"
+    id "com.bmuschko.docker-remote-api" version "3.0.11"
+    id "org.sonarqube" version "2.5"
+}
+
+release {
+    failOnSnapshotDependencies = false
+}
+
+miniconda {
+    bootstrapDirectoryPrefix = "$buildDir/conda"
+    buildEnvironmentDirectory = new File(buildDir, 'venv')
+    pythonVersion = 3
+    minicondaVersion = '4.3.11'
+    channels = ['https://repo.continuum.io/pkgs/free', 'conda-forge']
+    packages = [
+        'pytest=3.3.2',
+        'flake8=3.5.0',
+        'pandas=0.22.0',
+        'configargparse=0.12.0',
+        'tabulate=0.8.2',
+        'sqlalchemy=1.2.1',
+        'psycopg2=2.7.3.2',
+        'coverage=4.4.2',
+        'docker-py=1.10.6',
+        'boto3=1.4.5'
+    ]
+}
+
+bootstrapPython {
+    doLast {
+        exec {
+            environment "PYTHONNOUSERSITE", 1
+            commandLine "${miniconda.bootstrapDirectory}/bin/conda",
+             'config',
+             '--system',
+             '--add', 'envs_dirs',
+             "${miniconda.buildEnvironmentDirectory}/.."
+        }
+    }
+}
+
+// Create an environment.yaml file after the environment has been created.
+setupPython {
+    doLast {
+        exec {
+            // Prevent users local packages being included ($HOME/.local)
+            environment 'PYTHONNOUSERSITE', 'DO_NOT_USE'
+            commandLine "${miniconda.buildEnvironmentDirectory}/bin/conda",
+             'env',
+             'export', '-n', 'venv',
+             '-f', "$buildDir/environment.yaml"
+        }
+    }
+}
+
+task clean(type: Delete) {
+    delete "$buildDir"
+}
+
+task styleCheck(type: Exec) {
+    dependsOn setupPython
+    commandLine "${miniconda.buildEnvironmentDirectory}/bin/flake8", 'test', 'src'
+}
+
+task pytest(type: Exec) {
+    dependsOn setupPython
+    shouldRunAfter styleCheck
+    // Prevent users local packages being included ($HOME/.local)
+    environment 'PYTHONNOUSERSITE', 'DO_NOT_USE'
+    environment "PYTHONPATH", file('src').toString() + ':' + file('test').toString()
+    commandLine "${miniconda.buildEnvironmentDirectory}/bin/coverage", 'run', '--branch', "--source=$projectDir/src", '-m', 'py.test', '-v', 'test'
+}
+
+task coverage(type: Exec) {
+    dependsOn pytest
+    environment "PYTHONPATH", file('src').toString() + ':' + file('test').toString()
+    commandLine "${miniconda.buildEnvironmentDirectory}/bin/coverage", 'report', '--fail-under', '80', '-m'
+}
+
+task coverageXml(type: Exec) {
+    dependsOn pytest
+    environment "PYTHONPATH", file('src').toString() + ':' + file('test').toString()
+    commandLine "${miniconda.buildEnvironmentDirectory}/bin/coverage", 'xml', '-i'
+}
+
+task writeVersionFile(){
+    new File("$projectDir/src", "VERSION").text = "$project.version"
+}
+
+task build() {
+    dependsOn styleCheck
+    dependsOn pytest
+    dependsOn writeVersionFile
+    dependsOn coverage
+}
+
+task prepareDockerContext(type: Copy){
+    dependsOn build
+    from "$projectDir"
+    into "$buildDir/docker"
+    include 'src/**'
+    exclude 'src/**.pyc'
+    include 'Dockerfile'
+    from(buildDir) {
+        include 'environment.yaml'
+        filter {
+            String line -> line.startsWith('prefix:') || line.startsWith('name:') ? null : line
+        }
+    }
+}
+
+sonarqube {
+    properties {
+        property "sonar.host.url", "http://sonarqube.tsm.internal/"
+        property "sonar.python.coverage.reportPath", "coverage.xml"
+        property "sonar.sources", "src"
+    }
+}
+
+import com.bmuschko.gradle.docker.tasks.image.DockerBuildImage
+task dockerImage(type: DockerBuildImage) {
+    dependsOn prepareDockerContext
+    inputDir = new File("$buildDir/docker")
+    String latestTag = "travel/$rootProject.name:latest"
+    String versionTag = "travel/$rootProject.name:$project.version"
+    tags = [latestTag, versionTag]
+}
+
+repositories {
+    mavenCentral()
+}
+
+project.tasks["sonarqube"].dependsOn "coverageXml"
+afterReleaseBuild.dependsOn ":acceptance-tests:cucumber"
+afterReleaseBuild.dependsOn "sonarqube"
